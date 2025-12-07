@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+
+{% block title %}飞线 - {{ wire.title }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/wire.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="wire-container">
+    <!-- 飞线信息栏 -->
+    <div class="wire-header">
+        <div class="wire-info">
+            <h1 class="wire-title">
+                <i class="fas fa-paperclip"></i>
+                {{ wire.title }}
+            </h1>
+            <div class="wire-stats">
+                <span class="stat">
+                    <i class="fas fa-users"></i>
+                    <span id="userCount">{{ wire.participants|length }}</span> 人参与
+                </span>
+                <span class="stat">
+                    <i class="fas fa-comment"></i>
+                    <span id="messageCount">{{ wire.messages|length }}</span> 张纸条
+                </span>
+                <span class="stat">
+                    <i class="fas fa-user"></i>
+                    创建者: {{ wire.creator.username }}
+                </span>
+            </div>
+        </div>
+        
+        <div class="wire-actions">
+            <button id="copyLink" class="btn btn-outline" title="复制链接">
+                <i class="fas fa-link"></i>
+                复制链接
+            </button>
+            <div class="user-info">
+                <span class="user-avatar" style="background-color: #3498db;">
+                    {% if session.username %}{{ session.username[0] }}{% else %}?{% endif %}
+                </span>
+                <span class="username">{% if session.username %}{{ session.username }}{% else %}未登录{% endif %}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 飞线主体 -->
+    <div class="wire-main">
+        <!-- 消息显示区域 -->
+        <div class="messages-area">
+            <div class="messages-header">
+                <h3>飞线上的纸条</h3>
+                <button id="refreshMessages" class="btn btn-outline">
+                    <i class="fas fa-sync-alt"></i>
+                    刷新
+                </button>
+            </div>
+            
+            <div class="messages-list" id="messagesList">
+                {% for message in wire.messages %}
+                <div class="message-item">
+                    <div class="message-header">
+                        <span class="user-avatar small" style="background-color: #3498db;">
+                            {{ message.user[0] }}
+                        </span>
+                        <span class="username">{{ message.user }}</span>
+                        <span class="message-time">{{ message.timestamp }}</span>
+                    </div>
+                    <div class="message-content">
+                        {{ message.content }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- 用户列表 -->
+        <div class="users-sidebar">
+            <h3>参与者</h3>
+            <div class="users-list" id="usersList">
+                {% for user_id, user in wire.participants.items() %}
+                <div class="user-item">
+                    <span class="user-avatar small" style="background-color: #3498db;">
+                        {{ user.username[0] }}
+                    </span>
+                    <span class="username">{{ user.username }}</span>
+                    {% if user.id == wire.creator.id %}
+                    <span class="user-status">(创建者)</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 消息输入框 -->
+    <div class="message-input-container">
+        <div class="input-group">
+            <input type="text" id="messageInput" placeholder="输入你想说的话..." maxlength="200">
+            <button id="sendMessage" class="btn btn-primary">
+                <i class="fas fa-paper-plane"></i>
+                发送纸条
+            </button>
+        </div>
+        <div class="input-hint">
+            <i class="fas fa-info-circle"></i>
+            输入消息后点击发送，与大家交流
+        </div>
+    </div>
+</div>
+
+<script>
+// 全局变量
+const wireId = '{{ wire.id }}';
+const currentUsername = '{{ session.username }}';
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 绑定发送消息按钮
+    document.getElementById('sendMessage').addEventListener('click', sendMessage);
+    
+    // 绑定刷新消息按钮
+    document.getElementById('refreshMessages').addEventListener('click', refreshMessages);
+    
+    // 绑定复制链接按钮
+    document.getElementById('copyLink').addEventListener('click', copyLink);
+    
+    // 按回车发送消息
+    document.getElementById('messageInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    // 初始加载消息
+    refreshMessages();
+});
+
+// 发送消息
+function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const content = messageInput.value.trim();
+    
+    if (!content) {
+        alert('请输入消息内容');
+        return;
+    }
+    
+    if (!currentUsername) {
+        alert('请先登录');
+        return;
+    }
+    
+    fetch('/wire/' + wireId + '/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            content: content,
+            username: currentUsername
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            // 清空输入框
+            messageInput.value = '';
+            // 刷新消息列表
+            refreshMessages();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('发送失败，请重试');
+    });
+}
+
+// 刷新消息列表
+function refreshMessages() {
+    fetch('/wire/' + wireId + '/messages')
+    .then(response => response.json())
+    .then(messages => {
+        updateMessagesList(messages);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('刷新失败');
+    });
+}
+
+// 更新消息列表
+function updateMessagesList(messages) {
+    const messagesList = document.getElementById('messagesList');
+    
+    // 清空现有消息
+    messagesList.innerHTML = '';
+    
+    // 添加新消息
+    messages.forEach(message => {
+        const messageItem = document.createElement('div');
+        messageItem.className = 'message-item';
+        messageItem.innerHTML = `
+            <div class="message-header">
+                <span class="user-avatar small" style="background-color: #3498db;">
+                    ${message.user[0]}
+                </span>
+                <span class="username">${message.user}</span>
+                <span class="message-time">${message.timestamp}</span>
+            </div>
+            <div class="message-content">
+                ${message.content}
+            </div>
+        `;
+        messagesList.appendChild(messageItem);
+    });
+    
+    // 更新消息计数
+    document.getElementById('messageCount').textContent = messages.length;
+    
+    // 滚动到底部
+    messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+// 复制链接
+function copyLink() {
+    const link = window.location.href;
+    
+    // 使用现代剪贴板API
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(link)
+            .then(() => {
+                alert('链接已复制到剪贴板');
+            })
+            .catch(err => {
+                fallbackCopy(link);
+            });
+    } else {
+        fallbackCopy(link);
+    }
+}
+
+// 备用复制方法
+function fallbackCopy(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        document.execCommand('copy');
+        alert('链接已复制到剪贴板');
+    } catch (err) {
+        console.error('Fallback: Oops, unable to copy', err);
+        alert('复制失败，请手动复制链接');
+    }
+    
+    document.body.removeChild(textArea);
+}
+        
+        element.style.left = newLeft + '%';
+    });
+    
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            element.style.zIndex = '';
+            document.body.style.userSelect = '';
+            
+            // 发送位置更新
+            const finalPosition = parseFloat(element.style.left);
+            socket.emit('move_message', {
+                wire_id: wireId,
+                message_id: messageId,
+                position: finalPosition
+            });
+        }
+    });
+}
+
+// 添加用户到列表
+function addUserToList(user) {
+    const existingUser = document.querySelector(`[data-user-id="${user.id}"]`);
+    if (existingUser) return;
+    
+    const template = document.getElementById('userTemplate');
+    const userElement = template.content.cloneNode(true);
+    
+    const userDiv = userElement.querySelector('.user-item');
+    userDiv.setAttribute('data-user-id', user.id);
+    
+    const avatar = userElement.querySelector('.user-avatar');
+    const username = userElement.querySelector('.username');
+    
+    avatar.style.backgroundColor = user.color;
+    avatar.textContent = user.username[0];
+    username.textContent = user.username;
+    
+    document.getElementById('usersList').appendChild(userElement);
+}
+
+// 从列表中移除用户
+function removeUserFromList(userId) {
+    const userElement = document.querySelector(`[data-user-id="${userId}"]`);
+    if (userElement) {
+        userElement.remove();
+    }
+}
+
+// 更新用户计数
+function updateUserCount(count) {
+    document.getElementById('userCount').textContent = count;
+}
+
+// 格式化时间
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('zh-CN', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+}
+
+// 发送消息
+function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const content = input.value.trim();
+    
+    if (!content) return;
+    
+    // 获取点击位置或使用默认位置
+    const position = 50; // 默认中间位置
+    
+    socket.emit('add_message', {
+        wire_id: wireId,
+        user_id: currentUser.id,
+        content: content,
+        position: position
+    });
+    
+    input.value = '';
+}
+
+// 复制链接
+function copyLink() {
+    const link = window.location.href;
+    navigator.clipboard.writeText(link).then(function() {
+        alert('链接已复制到剪贴板');
+    }).catch(function() {
+        // 备用方案
+        const tempInput = document.createElement('input');
+        tempInput.value = link;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        alert('链接已复制到剪贴板');
+    });
+}
+
+// 点击飞线添加消息
+function setupWireClick() {
+    const wireLine = document.getElementById('wireLine');
+    
+    wireLine.addEventListener('click', function(e) {
+        const rect = wireLine.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const position = (clickX / rect.width) * 100;
+        
+        const input = document.getElementById('messageInput');
+        input.focus();
+        
+        // 可以在这里存储点击位置，发送消息时使用
+        // 目前使用默认位置，可以扩展为精确放置
+    });
+}
+
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initSocket();
+    setupWireClick();
+    
+    // 发送消息按钮事件
+    document.getElementById('sendMessage').addEventListener('click', sendMessage);
+    
+    // 输入框回车发送
+    document.getElementById('messageInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    // 复制链接按钮
+    document.getElementById('copyLink').addEventListener('click', copyLink);
+});
+</script>
+{% endblock %}
